@@ -1,27 +1,20 @@
 from astroquery.vizier import Vizier
-import requests
-
-# Create a custom session to disable SSL verification
-session = requests.Session()
-session.verify = False
-
-# Attach the custom session to Vizier
-Vizier._session = session
-
-# Your existing code
 from astropy.coordinates import EarthLocation, AltAz, SkyCoord
 from astropy.time import Time
 import matplotlib.pyplot as plt
 import numpy as np
 from geopy.geocoders import Nominatim
 
+# Disable SSL verification for astroquery
+Vizier.verify = False
+
 # Parameters
-num_stars = 700
+num_stars = 700  # Number of stars to include
 canvas_width_cm = 120
 canvas_height_cm = 180
 output_pdf = "starry_sky_map.pdf"
-city = "Donaueschingen, Germany"
-date_time = "2002-07-28 12:00:00"
+city = "Donaueschingen, Germany"  # Change to your city
+date_time = "2002-07-28 12:00:00"  # Change to your birth date and time (UTC)
 
 # Fetch location coordinates
 geolocator = Nominatim(user_agent="star_map_creator")
@@ -34,24 +27,27 @@ observer_location = EarthLocation(lat=latitude, lon=longitude)
 observation_time = Time(date_time)
 
 # Fetch star data
-vizier = Vizier(columns=["RAJ2000", "DEJ2000", "Vmag"])
+vizier = Vizier(columns=["RAICRS", "DEICRS", "Vmag"])
 result = vizier.query_constraints(catalog="I/239/hip_main", Vmag="<10")  # Bright stars
+if len(result) == 0:
+    raise ValueError("No star data retrieved from Vizier. Check your query constraints.")
 stars = result[0].to_pandas()
 
 # Convert star coordinates to AltAz (observer's perspective)
-star_coords = SkyCoord(ra=stars["RAJ2000"].values, dec=stars["DEJ2000"].values, unit="deg")
+star_coords = SkyCoord(ra=stars["RAICRS"].values, dec=stars["DEICRS"].values, unit="deg")
 altaz_frame = AltAz(obstime=observation_time, location=observer_location)
 altaz = star_coords.transform_to(altaz_frame)
 
 # Filter stars above the horizon
 stars = stars[altaz.alt.deg > 0]
-alt = altaz.alt.deg
-az = altaz.az.deg
+alt = altaz.alt.deg[altaz.alt.deg > 0]
+az = altaz.az.deg[altaz.alt.deg > 0]
 
 # Select top N stars by brightness (Vmag)
-stars = stars.iloc[np.argsort(stars["Vmag"])].head(num_stars)
-alt = alt[np.argsort(stars["Vmag"])][:num_stars]
-az = az[np.argsort(stars["Vmag"])][:num_stars]
+sorted_indices = np.argsort(stars["Vmag"])
+stars = stars.iloc[sorted_indices].head(num_stars)
+alt = alt[sorted_indices][:num_stars]
+az = az[sorted_indices][:num_stars]
 
 # Normalize positions to fit canvas
 az_norm = (az - az.min()) / (az.max() - az.min()) * canvas_width_cm
